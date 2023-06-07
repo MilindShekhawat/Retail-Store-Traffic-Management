@@ -2,8 +2,8 @@ import cv2
 import imutils
 import numpy as np
 import argparse
-import os
 import csv
+import subprocess
 
 # initialize the HOG descriptor/person detector
 hogcv = cv2.HOGDescriptor()
@@ -27,7 +27,7 @@ def detect(frame):
 
         #Populate the list coord with x and y coordinate values
         peoplecount= peoplecount+1
-        coord.append({"Frame": framecount, "People": peoplecount, "X_coord": x+(w/2), "Y_coord": y+(h/2)})
+        coord.append({"Frame": framecount, "People": peoplecount, "X_coord": x+(w/2), "Y_coord": (y+(h/2))})
 
     # Displaying Frames in a Window
     cv2.imshow('output', frame)
@@ -40,8 +40,8 @@ def detect(frame):
 # Read Frame Data for videowriter and extract the first frame
 def framedata(path):
     video = cv2.VideoCapture(path, apiPreference=cv2.CAP_MSMF)
-    _, frame = video.read()
-    frame = imutils.resize(frame , width=min(600,frame.shape[1]))
+    _,frame = video.read()
+    
     #height and width
     (h, w) = frame.shape[:2]
     #frames per second
@@ -72,9 +72,10 @@ def videoinput(path):
     while True:
         # Reading Frames
         isTrue, frame =  video.read()
-        if isTrue == True:
+        if isTrue:
             # Resizing Frames for better performance
-            frame = imutils.resize(frame , width=min(600,frame.shape[1]))
+            if(w > 600):
+                frame = imutils.resize(frame , width=600)
             # Calling detect function
             frame = detect(frame)
             #writing video with bounding box
@@ -84,11 +85,13 @@ def videoinput(path):
             # Closing the Window   
             if cv2.waitKey(10) & 0xFF == ord('d'):
                 break
-
+        else:    
+            break
      # Removing capture variable from memory  
     result.release()     
     video.release()
     cv2.destroyAllWindows()
+
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
@@ -97,3 +100,5 @@ if __name__ == "__main__":
     args = vars(ap.parse_args()) 
     # Passing path value to videoinput 
     videoinput(args["video"])
+
+subprocess.run(["python", "heatmap.py"])
