@@ -1,41 +1,15 @@
 import cv2
-import imutils
-import numpy as np
 import argparse
 import csv
 import subprocess
+import time
+import numpy as np
 
-# initialize the HOG descriptor/person detector
-hogcv = cv2.HOGDescriptor()
-hogcv.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
-# Global variables for coordinate's list and framecounter
-global coord, framecount
-coord = []
-framecount = 0
 
-#Detects people, creates bounding box and logs coordinates into a list
-def detect(frame):
-    global framecount
-    peoplecount = 0
-    framecount = framecount + 1
-
-    # Detect where to and How to create a Bounding Box
-    bounding_box_cordinates, weights =  hogcv.detectMultiScale(frame, winStride = (8, 8), padding = (8, 8), scale = 1.05)
-    # Render the bounding Box
-    for x,y,w,h in bounding_box_cordinates:
-        cv2.rectangle(frame, (x,y), (x+w,y+h), (0,255,0), 2)
-
-        #Populate the list coord with x and y coordinate values
-        peoplecount= peoplecount+1
-        coord.append({"Frame": framecount, "People": peoplecount, "X_coord": x+(w/2), "Y_coord": (y+(h/2))})
-
-    # Displaying Frames in a Window
-    cv2.imshow('output', frame)
-
-    #Call csvoutput definition
-    csvoutput(coord)
-
-    return frame
+# Load Yolo
+net = cv2.dnn.readNet("yolov3_training_last.weights" , "yolov3_testing.cfg")
+layer_names = net.getLayerNames()
+output_layers = [layer_names[i - 1] for i in net.getUnconnectedOutLayers()]
 
 # Read Frame Data for videowriter and extract the first frame
 def framedata(path):
@@ -55,41 +29,83 @@ def framedata(path):
 # Export x and y coordinate values of tracked people in a .csv file
 def csvoutput(coord):
     with open("coordinates.csv", mode="w", newline ='') as csvfile:
-        fieldnames = ["Frame", "People", "X_coord", "Y_coord"]
+        fieldnames = ["Frame", "Confidence", "X_coord", "Y_coord"]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         for row in coord:
             writer.writerow(row)
-
+    
 # Read the source video
 def videoinput(path):
+    coord = []
     # Frame by Frame Input Reading
-    video = cv2.VideoCapture(path, apiPreference=cv2.CAP_MSMF)
-    h,w,fps = framedata(path)
+    cap = cv2.VideoCapture(path, apiPreference=cv2.CAP_MSMF)
+    height,width,fps = framedata(path)
     # VideoWriter enables writing frames to output
-    result = cv2.VideoWriter('output.mp4',cv2.VideoWriter_fourcc(*'mp4v'), fps, (w,h))
-  
-    while True:
-        # Reading Frames
-        isTrue, frame =  video.read()
-        if isTrue:
-            # Resizing Frames for better performance
-            if(w > 600):
-                frame = imutils.resize(frame , width=600)
-            # Calling detect function
-            frame = detect(frame)
-            #writing video with bounding box
-            result.write(frame)
+    result = cv2.VideoWriter('output.mp4',cv2.VideoWriter_fourcc(*'mp4v'), fps, (width,height))
 
-            cv2.imshow('output', frame)
-            # Closing the Window   
-            if cv2.waitKey(10) & 0xFF == ord('d'):
-                break
-        else:    
+    font = cv2.FONT_HERSHEY_PLAIN
+    starting_time = time.time()
+    frame_id = 0
+
+    while True:
+        _, frame = cap.read()
+        frame_id += 1
+
+        blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
+
+        net.setInput(blob)
+        outs = net.forward(output_layers)
+
+        # Showing informations on the screen
+        confidences = []
+        boxes = []
+        for out in outs:
+            for detection in out:
+                scores = detection[5:]
+                class_id = np.argmax(scores)
+                confidence = scores[class_id]
+                if confidence > 0.2:
+                    # Object detected
+                    center_x = int(detection[0] * width)
+                    center_y = int(detection[1] * height)
+                    w = int(detection[2] * width)
+                    h = int(detection[3] * height)
+
+                    # Rectangle coordinates
+                    x = int(center_x - w / 2)
+                    y = int(center_y - h / 2)
+
+                    boxes.append([x, y, w, h])
+                    confidences.append(float(confidence))
+                    coord.append({"Frame": frame_id, "Confidence": confidence, "X_coord": x+(w/2), "Y_coord": y+h})
+        
+        indexes = cv2.dnn.NMSBoxes(boxes, confidences, 0.8, 0.3)
+
+        for i in range(len(boxes)):
+            if i in indexes:
+                x, y, w, h = boxes[i]
+                label = "Person"
+                confidence = confidences[i]
+                color = (0,255,0)
+                cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
+                cv2.putText(frame, label + " " + str(round(confidence, 2)), (x, y + 30), font, 3, color, 3)
+                
+        elapsed_time = time.time() - starting_time
+        fps = frame_id / elapsed_time
+        cv2.putText(frame, "FPS: " + str(round(fps, 2)), (10, 50), font, 4, (0, 0, 0), 3)
+        csvoutput(coord)
+
+        #writing video with bounding box
+        result.write(frame)
+        cv2.imshow("Image", frame)
+    
+        if cv2.waitKey(10) & 0xFF == ord('d'):
             break
-     # Removing capture variable from memory  
+    
+    # Removing capture variable from memory  
     result.release()     
-    video.release()
+    cap.release()
     cv2.destroyAllWindows()
 
 

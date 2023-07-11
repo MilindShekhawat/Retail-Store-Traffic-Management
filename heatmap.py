@@ -42,6 +42,6 @@ plot = sns.histplot(
 fig = plot.get_figure()
 fig.savefig('heatmap.png')
 
-#plt.xlim(0,600)
-#plt.ylim(338,0)
+plt.xlim(0,480)
+plt.ylim(360,0)
 plt.show()
